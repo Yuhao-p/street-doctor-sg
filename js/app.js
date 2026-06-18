@@ -368,8 +368,10 @@ route(/^\/map(?:\?.*)?$/, function mapPage() {
       // existing issue segments as a highlight layer
       const src = map.getSource("issue-segs");
       if (src) {
-        const segFeatures = rows.filter((i) => i.geometry && i.geometry.length > 1)
-          .map((i) => ({ type: "Feature", geometry: { type: "LineString", coordinates: i.geometry }, properties: { color: (catBySlug(i.category) || {}).color || "#e4572e" } }));
+        const segFeatures = rows
+          .map((i) => ({ i, segs: normalizeGeom(i.geometry) }))
+          .filter(({ segs }) => segs.length)
+          .map(({ i, segs }) => ({ type: "Feature", geometry: { type: "MultiLineString", coordinates: segs }, properties: { color: (catBySlug(i.category) || {}).color || "#e4572e" } }));
         src.setData({ type: "FeatureCollection", features: segFeatures });
       }
     }
@@ -415,19 +417,15 @@ route(/^\/map(?:\?.*)?$/, function mapPage() {
       if (!drawer.classList.contains("open")) return;
       if (e.originalEvent && e.originalEvent._handledTransit) return;
       if (mode === "segment") {
+        // stay in segment mode; the panel owns the chain + connectivity logic
         panel && panel.segmentLoading();
         try {
           const seg = await fetchRoadSegment(e.lngLat.lng, e.lngLat.lat);
-          if (seg) {
-            map.getSource("report-seg").setData({ type: "FeatureCollection", features: [{ type: "Feature", geometry: { type: "LineString", coordinates: seg.coords }, properties: {} }] });
-            const mid = segMidpoint(seg.coords);
-            placePin(mid[0], mid[1]);
-            panel && panel.setSegment(seg);
-          } else { panel && panel.segmentFailed("No road found there — try clicking directly on a road."); }
+          if (seg) { panel && panel.handleSegmentClick(seg); }
+          else { panel && panel.segmentFailed("No road found there — try clicking directly on a road."); }
         } catch (err) {
           panel && panel.segmentFailed("Couldn't reach OpenStreetMap. Place a pin instead.");
         }
-        setMode("point");
       } else {
         placePin(e.lngLat.lng, e.lngLat.lat);
         panel && panel.setLocation(e.lngLat.lng, e.lngLat.lat);
@@ -450,13 +448,18 @@ route(/^\/map(?:\?.*)?$/, function mapPage() {
       panel && panel.reflectMode(m);
     }
 
+    function renderSegments(segs) {
+      const src = map.getSource("report-seg");
+      if (src) src.setData({ type: "FeatureCollection", features: (segs || []).map((c) => ({ type: "Feature", geometry: { type: "LineString", coordinates: c }, properties: {} })) });
+    }
+
     function openDrawer() {
       drawer.classList.add("open");
       const rep = { lng: null, lat: null, address_text: "", category: DB.activeCategories()[0]?.slug || "",
         title: "", description: "", affected_users: [], photos: [], email: "", consent: false, turnstile: false,
-        geometry: null, asset_type: "street", transit_ref: null };
+        geometry: [], asset_type: "street", transit_ref: null };
       panel = mountReportPanel(wrapEl.querySelector("#drawer-body"), rep, {
-        requestMode: setMode, clearGeo: () => { clearReportGeo(); }, placePin, map,
+        requestMode: setMode, clearGeo: () => { clearReportGeo(); }, placePin, renderSegments, map,
         onSubmitted: () => { clearReportGeo(); setMode("point"); draw(); },
       });
     }
@@ -509,8 +512,15 @@ function mountReportPanel(container, rep, hooks) {
       <div class="loc-hint" id="loc-hint">📍 Click the map to set the location (or drag the pin).</div>
       <div class="loc-status muted" id="loc-status">No location selected yet.</div>
       <div class="row" style="gap:8px;align-items:center">
-        <button class="btn btn-ghost btn-sm seg-toggle" id="seg-toggle">🛣️ Highlight road segment</button>
-        <button class="btn btn-ghost btn-sm hidden" id="seg-clear">Clear segment</button>
+        <button class="btn btn-ghost btn-sm seg-toggle" id="seg-toggle">🛣️ Select road segment(s)</button>
+      </div>
+      <div class="seg-tools hidden" id="seg-tools" style="margin-top:8px">
+        <div class="loc-hint" id="seg-hint">Click connected road segments to extend the selection; click a highlighted one to remove it. Drag the pin to fine-tune the marker.</div>
+        <div class="row" style="gap:8px;align-items:center;margin-top:8px">
+          <button class="btn btn-ghost btn-sm" id="seg-undo">↶ Undo last</button>
+          <button class="btn btn-ghost btn-sm" id="seg-clear">Clear</button>
+          <button class="btn btn-primary btn-sm" id="seg-done">Done</button>
+        </div>
       </div>
       <div class="loc-status muted" id="seg-status"></div>
       <div id="transit-row"></div>
@@ -574,19 +584,50 @@ function mountReportPanel(container, rep, hooks) {
   }
   paintPhotos();
 
-  // segment toggle
-  $$("#seg-toggle").onclick = () => {
-    segMode = !segMode;
-    $$("#seg-toggle").classList.toggle("on", segMode);
-    hooks.requestMode(segMode ? "segment" : "point");
-    $$("#seg-status").textContent = segMode ? "Now click the road on the map…" : "";
+  // ---- road-segment chain selection ----
+  const segNames = [];                                  // unique road names, selection order
+  const segEnds = (c) => [c[0], c[c.length - 1]];
+  const near = (a, b) => haversine(a[1], a[0], b[1], b[0]) < 15;   // ~15m endpoint tolerance
+  const segKey = (c) => { const [a, b] = segEnds(c).map((p) => p.map((n) => n.toFixed(5)).join(",")); return [a, b].sort().join("|"); };
+  const connects = (coords) => {
+    if (!rep.geometry.length) return true;
+    const ne = segEnds(coords);
+    return rep.geometry.some((s) => { const e = segEnds(s); return ne.some((p) => e.some((q) => near(p, q))); });
+  };
+  function reposPin() {
+    const all = [].concat(...rep.geometry);
+    if (!all.length) return;
+    const xs = all.map((p) => p[0]), ys = all.map((p) => p[1]);
+    const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+    let best = all[0], bd = Infinity;
+    for (const p of all) { const d = haversine(cy, cx, p[1], p[0]); if (d < bd) { bd = d; best = p; } }
+    rep.lng = best[0]; rep.lat = best[1]; hooks.placePin(best[0], best[1]); updateLocStatus();
+  }
+  function renderSegStatus() {
+    const n = rep.geometry.length;
+    $$("#seg-status").textContent = n ? `🛣️ ${n} segment${n > 1 ? "s" : ""} selected${segNames.length ? " — " + segNames.join(", ") : ""}` : (segMode ? "Click a road on the map…" : "");
+  }
+  function applySegUI(on) {                 // UI only — no mode request (avoids recursion)
+    segMode = on;
+    $$("#seg-toggle").classList.toggle("on", on);
+    $$("#seg-tools").classList.toggle("hidden", !on);
+    renderSegStatus();
+  }
+  function setSegMode(on) { applySegUI(on); hooks.requestMode(on ? "segment" : "point"); }
+  $$("#seg-toggle").onclick = () => setSegMode(!segMode);
+  $$("#seg-done").onclick = () => setSegMode(false);
+  $$("#seg-undo").onclick = () => {
+    if (!rep.geometry.length) return;
+    rep.geometry.pop(); segNames.pop();
+    hooks.renderSegments(rep.geometry);
+    rep.geometry.length ? reposPin() : (function () { rep.lng = rep.lat = null; hooks.clearGeo(); updateLocStatus(); })();
+    renderSegStatus();
   };
   $$("#seg-clear").onclick = () => {
-    rep.geometry = null;
+    rep.geometry = []; segNames.length = 0;
     hooks.clearGeo();
-    $$("#seg-clear").classList.add("hidden");
-    $$("#seg-status").textContent = "";
     rep.lng = rep.lat = null; updateLocStatus();
+    renderSegStatus();
   };
 
   $$("#r-submit").onclick = () => {
@@ -599,7 +640,7 @@ function mountReportPanel(container, rep, hooks) {
     const issue = DB.addIssue({
       category: rep.category, title: rep.title.trim(), description: rep.description.trim(),
       affected_users: rep.affected_users, lng: rep.lng, lat: rep.lat, address_text: rep.address_text,
-      photos: rep.photos, email: rep.email || null, geometry: rep.geometry,
+      photos: rep.photos, email: rep.email || null, geometry: rep.geometry.length ? rep.geometry : null,
       asset_type: rep.asset_type, transit_ref: rep.transit_ref,
     });
     hooks.onSubmitted(issue);
@@ -624,22 +665,32 @@ function mountReportPanel(container, rep, hooks) {
     container.querySelector("#again").onclick = () => mountReportPanel(container, {
       lng: null, lat: null, address_text: "", category: DB.activeCategories()[0]?.slug || "",
       title: "", description: "", affected_users: [], photos: [], email: "", consent: false,
-      turnstile: false, geometry: null, asset_type: "street", transit_ref: null }, hooks);
+      turnstile: false, geometry: [], asset_type: "street", transit_ref: null }, hooks);
   }
 
   // ----- api exposed to the map -----
   return {
     setLocation(lng, lat) { rep.lng = lng; rep.lat = lat; updateLocStatus(); },
-    setSegment(seg) {
-      rep.geometry = seg.coords;
-      if (seg.name && !rep.address_text) rep.address_text = seg.name;
-      $$("#seg-clear").classList.remove("hidden");
-      $$("#seg-status").textContent = `🛣️ Segment highlighted${seg.name ? " — " + seg.name : ""} (${seg.coords.length} pts)`;
-      updateLocStatus();
+    handleSegmentClick(seg) {
+      const key = segKey(seg.coords);
+      const idx = rep.geometry.findIndex((c) => segKey(c) === key);
+      if (idx >= 0) {                                   // toggle off an already-selected segment
+        rep.geometry.splice(idx, 1); segNames.splice(idx, 1);
+      } else if (!connects(seg.coords)) {
+        return toast("Pick a segment connected to your selection");
+      } else {                                          // add to the chain
+        rep.geometry.push(seg.coords);
+        segNames.push(seg.name || "unnamed road");
+      }
+      // keep names unique-ish but order-preserving for the status line
+      hooks.renderSegments(rep.geometry);
+      if (rep.geometry.length) { reposPin(); if (!rep.address_text) rep.address_text = [...new Set(segNames)].join(", "); }
+      else { rep.lng = rep.lat = null; hooks.clearGeo(); updateLocStatus(); }
+      renderSegStatus();
     },
-    segmentLoading() { $$("#seg-status").textContent = "Looking up the road segment…"; },
+    segmentLoading() { if (segMode && !rep.geometry.length) $$("#seg-status").textContent = "Looking up the road segment…"; },
     segmentFailed(msg) { $$("#seg-status").textContent = msg; },
-    reflectMode(m) { segMode = m === "segment"; $$("#seg-toggle").classList.toggle("on", segMode); },
+    reflectMode(m) { applySegUI(m === "segment"); },
     prefillStation(st) {
       rep.asset_type = "transit"; rep.transit_ref = st.name;
       rep.lng = st.lng; rep.lat = st.lat; rep.address_text = st.name + " (" + st.lines.join("/") + ")";
@@ -936,7 +987,7 @@ route(/^\/issues\/([\w-]+)$/, function issueDetail(id) {
       <div class="detail-head" style="margin-top:10px">
         ${statusBadge(issue.status)} ${categoryTag(issue.category)}
         ${issue.asset_type === "transit" && issue.transit_ref ? `<span class="transit-pill">🚉 ${esc(issue.transit_ref)}</span>` : ""}
-        ${issue.geometry && issue.geometry.length > 1 ? `<span class="tag">🛣️ Road segment</span>` : ""}
+        ${normalizeGeom(issue.geometry).length ? `<span class="tag">🛣️ Road segment${normalizeGeom(issue.geometry).length > 1 ? "s (" + normalizeGeom(issue.geometry).length + ")" : ""}</span>` : ""}
       </div>
       <h1 style="margin-bottom:6px">${esc(issue.title)}</h1>
       <p class="muted" style="margin-top:0">📍 ${esc(issue.address_text || "Location on map")} · Reported ${fmtDate(issue.created_at)} · Updated ${fmtDate(issue.updated_at)}</p>
@@ -992,11 +1043,13 @@ route(/^\/issues\/([\w-]+)$/, function issueDetail(id) {
   setTimeout(() => {
     const map = new maplibregl.Map({ container: "detail-map", style: OSM_STYLE, center: [issue.lng, issue.lat], zoom: 15, interactive: true, attributionControl: false });
     new maplibregl.Marker({ color: cat?.color || "#e4572e" }).setLngLat([issue.lng, issue.lat]).addTo(map);
-    if (issue.geometry && issue.geometry.length > 1) {
+    const segs = normalizeGeom(issue.geometry);
+    if (segs.length) {
       map.on("load", () => {
-        map.addSource("seg", { type: "geojson", data: { type: "Feature", geometry: { type: "LineString", coordinates: issue.geometry }, properties: {} } });
+        map.addSource("seg", { type: "geojson", data: { type: "Feature", geometry: { type: "MultiLineString", coordinates: segs }, properties: {} } });
         map.addLayer({ id: "seg", type: "line", source: "seg", paint: { "line-color": cat?.color || "#e4572e", "line-width": 6, "line-opacity": 0.85 } });
-        const b = issue.geometry.reduce((bb, c) => bb.extend(c), new maplibregl.LngLatBounds(issue.geometry[0], issue.geometry[0]));
+        const flat = [].concat(...segs);
+        const b = flat.reduce((bb, c) => bb.extend(c), new maplibregl.LngLatBounds(flat[0], flat[0]));
         map.fitBounds(b, { padding: 40, maxZoom: 16, duration: 0 });
       });
     }
@@ -1317,7 +1370,7 @@ route(/^\/admin\/issues\/([\w-]+)$/, function adminIssueEdit(id) {
   main.appendChild(statusCard);
 
   // merge / duplicate
-  const others = DB.allIssues().filter((i) => i.id !== issue.id && i.status !== "pending_moderation");
+  const others = DB.allIssues().filter((i) => i.id !== issue.id && i.status !== "pending_moderation" && i.status !== "duplicate");
   const mergeCard = el(`<div class="card" style="margin-top:16px">
     <h3>Mark as duplicate</h3>
     <p class="muted">Point this case at the primary case it duplicates. Nothing is hard-deleted.</p>
@@ -1364,9 +1417,10 @@ route(/^\/admin\/issues\/([\w-]+)$/, function adminIssueEdit(id) {
   mergeCard.querySelector("#merge-btn").onclick = () => {
     const target = mergeCard.querySelector("#merge-target").value;
     if (!target) return toast("Pick a primary case first");
-    DB.updateIssue(issue.id, { duplicate_of_issue_id: target });
-    DB.pushStatus(issue.id, "duplicate", "Merged as duplicate.", true);
-    toast("Marked as duplicate"); render();
+    const res = DB.mergeIssue(issue.id, target);
+    if (!res) return toast("Couldn't merge those cases");
+    DB.pushStatus(issue.id, "duplicate", `Merged into "${res.targetTitle}". ${res.moved} support(s) transferred.`, true);
+    toast(`Merged — ${res.moved} support(s) moved`); render();
   };
 
   setTimeout(() => {

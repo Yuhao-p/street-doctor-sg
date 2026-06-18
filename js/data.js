@@ -70,7 +70,7 @@ const SEED_ISSUES = [
     lng: 103.8721, lat: 1.3935,
     address_text: "Jalan Kayu, near Fernvale",
     asset_type: "street",
-    geometry: [[103.8709, 1.3927], [103.8715, 1.3931], [103.8721, 1.3935], [103.8727, 1.3940], [103.8733, 1.3945]],
+    geometry: [[[103.8709, 1.3927], [103.8715, 1.3931], [103.8721, 1.3935], [103.8727, 1.3940], [103.8733, 1.3945]]],
     status: "under_stc_review",
     support_count: 47,
     photos: [],
@@ -308,6 +308,19 @@ const DB = (() => {
       return true;
     },
 
+    /* ----- merge (transfer support to the primary case) ----- */
+    mergeIssue(dupId, targetId) {
+      const dup = this.getIssue(dupId), target = this.getIssue(targetId);
+      if (!dup || !target || dupId === targetId) return null;
+      const moved = dup.support_count || 0;
+      target.support_count = (target.support_count || 0) + moved;
+      target.updated_at = new Date().toISOString();
+      dup.support_count = 0;
+      dup.duplicate_of_issue_id = targetId;
+      _save();
+      return { moved, targetTitle: target.title };
+    },
+
     /* ----- categories ----- */
     categories() { return state.categories; },
     activeCategories() { return state.categories.filter((c) => c.is_active); },
@@ -350,6 +363,9 @@ const DB = (() => {
 /* ---------- small lookup helpers ---------- */
 const catBySlug = (slug) => DB.categories().find((c) => c.slug === slug);
 const transitById = (id) => TRANSIT_STATIONS.find((t) => t.id === id);
+// geometry is stored as MultiLineString coords (array of segments). Accept the
+// legacy single-LineString shape ([[lng,lat],...]) and wrap it for compatibility.
+const normalizeGeom = (g) => (!g || !g.length ? [] : (typeof g[0][0] === "number" ? [g] : g));
 const fmtDate = (iso) =>
   new Date(iso).toLocaleDateString("en-SG", { year: "numeric", month: "short", day: "numeric" });
 const fmtDateTime = (iso) =>
