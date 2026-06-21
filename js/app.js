@@ -444,13 +444,20 @@ route(/^\/map(?:\?.*)?$/, function mapPage() {
     let hoveredSeg = null;       // road-network feature id currently hovered
     let roadnetLoaded = false;
 
-    // Lazily load the pre-generated junction-to-junction road network (pilot file
-    // now; whole-island PMTiles later). Used for instant hover/select.
+    // Lazily load the pre-generated junction-to-junction road network.
+    // Tries the full-island file first (sg-roads.geojson), falls back to the
+    // Toa Payoh pilot file. Overpass live-fetch remains the fallback for areas
+    // not covered by either file.
     function loadRoadnet() {
       if (roadnetLoaded) return;
       roadnetLoaded = true;
-      fetch("data/pilot-roads.geojson")
-        .then((r) => r.json())
+      const tryLoad = (url) =>
+        fetch(url).then((r) => {
+          if (!r.ok) throw new Error(r.status);
+          return r.json();
+        });
+      tryLoad("data/sg-roads.geojson")
+        .catch(() => tryLoad("data/pilot-roads.geojson"))
         .then((gj) => { const s = map.getSource("roadnet"); if (s) s.setData(gj); })
         .catch(() => { roadnetLoaded = false; });
     }
