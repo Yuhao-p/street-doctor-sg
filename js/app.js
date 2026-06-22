@@ -1278,6 +1278,8 @@ route(/^\/issues\/([\w-]+)$/, function issueDetail(id) {
                   ${h.note ? `<div class="t-note">${esc(h.note)}</div>` : ""}</li>`).join("")}</ul>`
               : `<p class="muted">No public updates yet.</p>`}
           </div>
+
+          <div class="card" id="comments-card" style="margin-top:14px"></div>
         </div>
 
         <div class="grow" style="flex:1;min-width:240px">
@@ -1312,6 +1314,43 @@ route(/^\/issues\/([\w-]+)$/, function issueDetail(id) {
   };
   const flagBtn = view.querySelector("#flag-btn");
   if (flagBtn && !voted_flag) flagBtn.onclick = () => openFlagDialog(issue);
+
+  // ----- discussion / comments -----
+  const cc = view.querySelector("#comments-card");
+  function renderComments() {
+    const list = DB.commentsForIssue(issue.id);
+    cc.innerHTML = `
+      <h3>Discussion ${list.length ? `<span class="muted" style="font-weight:400;font-size:14px">(${list.length})</span>` : ""}</h3>
+      <p class="muted" style="font-size:13px;margin-top:-4px">Add context or confirm what you've seen here. Be respectful — comments are public.</p>
+      <div class="comment-list">
+        ${list.length ? list.map((c) => `
+          <div class="comment">
+            <div class="comment-head"><strong>${esc(c.name)}</strong><span class="muted" style="font-size:12px">${fmtDateTime(c.created_at)}</span>
+              ${DB.isAdmin() ? `<button class="comment-del" data-del="${c.id}" title="Delete comment">✕</button>` : ""}
+            </div>
+            <div class="comment-body">${esc(c.body)}</div>
+          </div>`).join("")
+          : `<p class="muted">No comments yet. Be the first to add context.</p>`}
+      </div>
+      <div class="comment-form">
+        <input type="text" id="cm-name" placeholder="Your name (optional)" maxlength="60">
+        <textarea id="cm-body" placeholder="Add a comment…" maxlength="1000"></textarea>
+        <div class="row" style="justify-content:flex-end"><button class="btn btn-primary btn-sm" id="cm-post">Post comment</button></div>
+      </div>`;
+    cc.querySelector("#cm-post").onclick = () => {
+      const name = cc.querySelector("#cm-name").value;
+      const body = cc.querySelector("#cm-body").value;
+      if (!body.trim()) return toast("Write something first.");
+      DB.addComment(issue.id, name, body);
+      toast("Comment posted");
+      renderComments();
+    };
+    cc.querySelectorAll("[data-del]").forEach((b) => b.onclick = () => {
+      if (!confirm("Delete this comment?")) return;
+      DB.deleteComment(b.dataset.del); toast("Comment deleted"); renderComments();
+    });
+  }
+  renderComments();
 
   setTimeout(() => {
     const map = new maplibregl.Map({ container: "detail-map", style: MAP_STYLE, center: [issue.lng, issue.lat], zoom: 15, interactive: true, attributionControl: false });

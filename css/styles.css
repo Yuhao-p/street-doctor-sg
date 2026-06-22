@@ -194,6 +194,25 @@ h1, h2, h3 { line-height: 1.2; margin: 0 0 .4em; }
 .dup-row .grow > a { font-size: 13px; font-weight: 600; }
 .dup-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 
+/* ---------- Comments / discussion (case detail) ---------- */
+.comment-list { margin: 10px 0 4px; }
+.comment { padding: 10px 0; border-top: 1px solid var(--line); }
+.comment:first-child { border-top: 0; }
+.comment-head { display: flex; gap: 8px; align-items: center; }
+.comment-head strong { font-size: 14px; }
+.comment-del {
+  margin-left: auto; border: 0; background: transparent; cursor: pointer;
+  color: var(--ink-soft); font-size: 13px; line-height: 1; padding: 2px 6px; border-radius: 6px;
+}
+.comment-del:hover { background: #fdecec; color: #b00020; }
+.comment-body { margin-top: 4px; color: #3a4452; white-space: pre-wrap; word-break: break-word; }
+.comment-form { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
+.comment-form input, .comment-form textarea {
+  width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: 9px;
+  font: inherit; margin-bottom: 8px; box-sizing: border-box;
+}
+.comment-form textarea { min-height: 64px; resize: vertical; }
+
 /* ---------- Forms ---------- */
 label.field { display: block; margin-bottom: 14px; font-weight: 600; font-size: 14px; }
 label.field span.req { color: var(--danger); }

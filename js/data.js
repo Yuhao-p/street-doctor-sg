@@ -248,6 +248,12 @@ const SEED_FLAGS = [
   },
 ];
 
+/* ---------- Seed comments (public discussion on a case) ---------- */
+const SEED_COMMENTS = [
+  { id: "cm-3001", issue_id: "sd-1002", name: "Mdm Tan", body: "My mother nearly got stranded here last week. The green light is far too short.", created_at: "2026-04-20T02:30:00Z" },
+  { id: "cm-3002", issue_id: "sd-1002", name: "Daniel", body: "A central refuge island would make a huge difference. Supporting this.", created_at: "2026-04-22T09:05:00Z" },
+];
+
 /* ============================================================
  * DB: a thin wrapper over localStorage that mimics the tables.
  * ============================================================ */
@@ -263,8 +269,9 @@ const DB = (() => {
         if (!s.categories) s.categories = structuredClone(DEFAULT_CATEGORIES);
         if (!s.settings)   s.settings = structuredClone(DEFAULT_SETTINGS);
         else s.settings = Object.assign(structuredClone(DEFAULT_SETTINGS), s.settings);
-        if (!s.flags)   s.flags = [];      // community moderation reports
-        if (!s.flagged) s.flagged = {};    // issueId -> true (this browser flagged it)
+        if (!s.flags)    s.flags = [];     // community moderation reports
+        if (!s.flagged)  s.flagged = {};   // issueId -> true (this browser flagged it)
+        if (!s.comments) s.comments = [];  // public discussion threads
         // Moderation gate removed: anything that was awaiting moderation is now
         // auto-published, matching the new "publish first, flag if wrong" model.
         s.issues.forEach((i) => {
@@ -285,6 +292,7 @@ const DB = (() => {
       votes: {},      // issueId -> true (this browser supported it)  ~ §5.2 fingerprint check
       flags: structuredClone(SEED_FLAGS),  // community moderation reports
       flagged: {},    // issueId -> true (this browser flagged it)   ~ dedupe like votes
+      comments: structuredClone(SEED_COMMENTS),  // public discussion threads
       admin: false,   // logged-in flag
       categories: structuredClone(DEFAULT_CATEGORIES),
       settings: structuredClone(DEFAULT_SETTINGS),
@@ -390,6 +398,36 @@ const DB = (() => {
       });
       if (n) _save();
       return n;
+    },
+
+    /* ----- comments (public discussion on a case) ----- */
+    commentsForIssue(id) {
+      return state.comments
+        .filter((c) => c.issue_id === id)
+        .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));   // oldest first
+    },
+    addComment(id, name, body) {
+      const text = (body || "").trim();
+      if (!text) return null;
+      const it = this.getIssue(id);
+      if (!it || !STATUSES[it.status]?.public) return null;   // only on public cases
+      const comment = {
+        id: "cm-" + Date.now(),
+        issue_id: id,
+        name: (name || "").trim().slice(0, 60) || "Anonymous",
+        body: text.slice(0, 1000),
+        created_at: new Date().toISOString(),
+      };
+      state.comments.push(comment);
+      _save();
+      return comment;
+    },
+    deleteComment(commentId) {
+      const i = state.comments.findIndex((c) => c.id === commentId);
+      if (i < 0) return false;
+      state.comments.splice(i, 1);
+      _save();
+      return true;
     },
 
     /* ----- merge (transfer support to the primary case) ----- */
