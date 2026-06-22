@@ -180,6 +180,19 @@ h1, h2, h3 { line-height: 1.2; margin: 0 0 .4em; }
 .mini-card h4 { margin: 0 0 6px; font-size: 14px; }
 .mini-card .meta { display: flex; gap: 6px; align-items: center; margin: 6px 0; flex-wrap: wrap; }
 
+/* ---------- "Already reported here?" suggestions (report drawer) ---------- */
+.dup-suggest {
+  margin-top: 12px; padding: 12px; border: 1px solid #f3d9a8; background: #fff6e8;
+  border-radius: 10px;
+}
+.dup-row {
+  display: flex; gap: 8px; align-items: center; padding: 8px 0;
+  border-top: 1px solid rgba(0,0,0,.08);
+}
+.dup-row:first-of-type { border-top: 0; }
+.dup-row .grow { flex: 1; min-width: 0; }
+.dup-row a { font-size: 13px; font-weight: 600; }
+
 /* ---------- Forms ---------- */
 label.field { display: block; margin-bottom: 14px; font-weight: 600; font-size: 14px; }
 label.field span.req { color: var(--danger); }

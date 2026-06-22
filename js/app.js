@@ -259,14 +259,31 @@ function addMarker(map, issue, interactive = true) {
   const node = el(`<div class="marker" style="background:${c.color};opacity:${faded}"><span>${c.icon}</span></div>`);
   const marker = new maplibregl.Marker({ element: node, anchor: "bottom" }).setLngLat([issue.lng, issue.lat]).addTo(map);
   if (interactive) {
-    const popup = new maplibregl.Popup({ offset: 24, closeButton: false }).setHTML(`
-      <div class="mini-card">
-        <h4>${esc(issue.title)}</h4>
-        <div class="meta">${statusBadge(issue.status)} <span class="tag">${esc(c.label || issue.category)}</span></div>
-        <div class="meta muted" style="font-size:13px">👍 ${issue.support_count} supports</div>
-        <a class="btn btn-sm btn-primary" href="#/issues/${issue.id}">View details</a>
-      </div>`);
-    node.addEventListener("click", () => marker.setPopup(popup).togglePopup());
+    const popup = new maplibregl.Popup({ offset: 24, closeButton: false });
+    // (re)build the popup body so the support button + count stay live
+    const paint = () => {
+      const voted = DB.hasVoted(issue.id);
+      const content = el(`
+        <div class="mini-card">
+          <h4>${esc(issue.title)}</h4>
+          <div class="meta">${statusBadge(issue.status)} <span class="tag">${esc(c.label || issue.category)}</span></div>
+          <div class="meta muted" style="font-size:13px">👍 <span class="sup-n">${issue.support_count}</span> supports</div>
+          <div class="row" style="gap:6px;margin-top:8px">
+            <button class="btn btn-sm ${voted ? "btn-ghost" : "btn-primary"} sup-btn" ${voted ? "disabled" : ""}>${voted ? "✓ Supported" : "👍 Support"}</button>
+            <a class="btn btn-sm btn-ghost" href="#/issues/${issue.id}">Details</a>
+          </div>
+        </div>`);
+      const sb = content.querySelector(".sup-btn");
+      if (sb && !voted) sb.onclick = () => {
+        if (DB.vote(issue.id)) { toast("Thanks for your support!"); paint(); }
+        else toast("You've already supported this case.");
+      };
+      popup.setDOMContent(content);
+    };
+    paint();
+    // stopPropagation: the marker lives inside the map's canvas-container, so a
+    // bubbling click reaches the map and closeOnClick would shut the popup again.
+    node.addEventListener("click", (e) => { e.stopPropagation(); marker.setPopup(popup).togglePopup(); });
   }
   return marker;
 }
@@ -608,6 +625,7 @@ route(/^\/map(?:\?.*)?$/, function mapPage() {
         geometry: [], asset_type: "street", transit_ref: null };
       panel = mountReportPanel(wrapEl.querySelector("#drawer-body"), rep, {
         requestMode: setMode, clearGeo: () => { clearReportGeo(); }, placePin, renderSegments, map,
+        refreshMap: () => draw(),
         onSubmitted: () => { clearReportGeo(); setMode("point"); draw(); },
       });
     }
@@ -674,6 +692,7 @@ function mountReportPanel(container, rep, hooks) {
       <div id="transit-row"></div>
     </div>`);
   body.appendChild(locBlock);
+  body.appendChild(el(`<div id="dup-suggest"></div>`));   // "already reported here?" suggestions
 
   const form = el(`
     <div style="margin-top:14px">
@@ -755,6 +774,54 @@ function mountReportPanel(container, rep, hooks) {
     const n = rep.geometry.length;
     $$("#seg-status").textContent = n ? `🛣️ ${n} segment${n > 1 ? "s" : ""} selected${segNames.length ? " — " + segNames.join(", ") : ""}` : (segMode ? "Click a road on the map…" : "");
   }
+  // ---- "already reported here?" — find existing public cases on the same spot ----
+  function findSimilar() {
+    const mineKeys = new Set(rep.geometry.map(segKey));
+    const myEnds = rep.geometry.flatMap(segEnds);
+    const here = rep.lat != null && rep.lng != null ? [rep.lng, rep.lat] : null;
+    if (!mineKeys.size && !here) return [];
+    return DB.publicIssues().filter((i) => {
+      const segs = normalizeGeom(i.geometry);
+      // 1) exact shared road segment
+      if (mineKeys.size && segs.some((s) => mineKeys.has(segKey(s)))) return true;
+      // 2) segment endpoints touch (covers live-Overpass vs pre-built coord drift)
+      if (myEnds.length && segs.length) {
+        const theirEnds = segs.flatMap(segEnds);
+        if (myEnds.some((p) => theirEnds.some((q) => near(p, q)))) return true;
+      }
+      // 3) point proximity (point-mode reports, or a case pin near this road)
+      if (here && haversine(here[1], here[0], i.lat, i.lng) < 60) return true;
+      return false;
+    });
+  }
+  function renderSuggestions() {
+    const box = $$("#dup-suggest");
+    if (!box) return;
+    box.innerHTML = "";
+    const matches = findSimilar();
+    if (!matches.length) return;
+    const card = el(`<div class="dup-suggest">
+      <strong>⚠️ Already reported here?</strong>
+      <p class="muted" style="margin:4px 0 8px;font-size:13px">These cases are on the same spot. Adding your support to one carries more weight than a duplicate.</p>
+    </div>`);
+    matches.slice(0, 3).forEach((i) => {
+      const voted = DB.hasVoted(i.id);
+      const cl = catBySlug(i.category) || {};
+      const row = el(`<div class="dup-row">
+        <div class="grow"><a href="#/issues/${i.id}" target="_blank" rel="noopener">${esc(i.title)}</a>
+          <div class="muted" style="font-size:12px">${esc(cl.label || i.category)} · 👍 <span class="dn">${i.support_count}</span> supports</div></div>
+        <button class="btn btn-sm ${voted ? "btn-ghost" : "btn-primary"} dsup" ${voted ? "disabled" : ""}>${voted ? "✓ Supported" : "👍 Support"}</button>
+      </div>`);
+      const b = row.querySelector(".dsup");
+      if (b && !voted) b.onclick = () => {
+        if (DB.vote(i.id)) { toast("Supported — thanks for joining!"); hooks.refreshMap && hooks.refreshMap(); renderSuggestions(); }
+        else toast("You've already supported this case.");
+      };
+      card.appendChild(row);
+    });
+    box.appendChild(card);
+  }
+
   function applySegUI(on) {                 // UI only — no mode request (avoids recursion)
     segMode = on;
     $$("#seg-toggle").classList.toggle("on", on);
@@ -770,12 +837,14 @@ function mountReportPanel(container, rep, hooks) {
     hooks.renderSegments(rep.geometry);
     rep.geometry.length ? reposPin() : (function () { rep.lng = rep.lat = null; hooks.clearGeo(); updateLocStatus(); })();
     renderSegStatus();
+    renderSuggestions();
   };
   $$("#seg-clear").onclick = () => {
     rep.geometry = []; segNames.length = 0;
     hooks.clearGeo();
     rep.lng = rep.lat = null; updateLocStatus();
     renderSegStatus();
+    renderSuggestions();
   };
 
   $$("#r-submit").onclick = () => {
@@ -819,7 +888,7 @@ function mountReportPanel(container, rep, hooks) {
 
   // ----- api exposed to the map -----
   return {
-    setLocation(lng, lat) { rep.lng = lng; rep.lat = lat; updateLocStatus(); },
+    setLocation(lng, lat) { rep.lng = lng; rep.lat = lat; updateLocStatus(); renderSuggestions(); },
     handleSegmentClick(seg) {
       const key = segKey(seg.coords);
       const idx = rep.geometry.findIndex((c) => segKey(c) === key);
@@ -836,6 +905,7 @@ function mountReportPanel(container, rep, hooks) {
       if (rep.geometry.length) { reposPin(); if (!rep.address_text) rep.address_text = [...new Set(segNames)].join(", "); }
       else { rep.lng = rep.lat = null; hooks.clearGeo(); updateLocStatus(); }
       renderSegStatus();
+      renderSuggestions();
     },
     segmentLoading() { if (segMode && !rep.geometry.length) $$("#seg-status").textContent = "Looking up the road segment…"; },
     segmentFailed(msg) { $$("#seg-status").textContent = msg; },
