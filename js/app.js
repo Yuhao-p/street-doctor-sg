@@ -442,6 +442,7 @@ route(/^\/map(?:\?.*)?$/, function mapPage() {
   const wrapEl = el(`
     <div class="map-page">
       <div id="map"></div>
+      <button class="fab-filter" id="filters-toggle" aria-label="Filters">⚲ Filters</button>
       <button class="btn btn-accent fab" id="open-report">＋ Report</button>
       <aside class="report-drawer" id="report-drawer">
         <header><h3>Report an issue</h3><button class="drawer-close" id="drawer-close" aria-label="Close">✕</button></header>
@@ -623,6 +624,7 @@ route(/^\/map(?:\?.*)?$/, function mapPage() {
     }
 
     function openDrawer() {
+      filters.classList.remove("open");   // don't stack the filter panel over the drawer
       drawer.classList.add("open");
       const rep = { lng: null, lat: null, address_text: "", category: DB.activeCategories()[0]?.slug || "",
         title: "", description: "", affected_users: [], photos: [], email: "", consent: false, turnstile: false,
@@ -637,6 +639,10 @@ route(/^\/map(?:\?.*)?$/, function mapPage() {
 
     wrapEl.querySelector("#open-report").onclick = openDrawer;
     wrapEl.querySelector("#drawer-close").onclick = closeDrawer;
+
+    // mobile: filters are collapsed by default; this button toggles them
+    const ftBtn = wrapEl.querySelector("#filters-toggle");
+    ftBtn.onclick = () => ftBtn.classList.toggle("on", filters.classList.toggle("open"));
 
     // filters
     filters.querySelectorAll("[data-cat]").forEach((chip) =>

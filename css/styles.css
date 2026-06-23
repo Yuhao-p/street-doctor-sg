@@ -137,6 +137,14 @@ h1, h2, h3 { line-height: 1.2; margin: 0 0 .4em; }
 .map-filters h4 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-soft); margin: 14px 0 8px; }
 .map-filters h4:first-child { margin-top: 0; }
 .filter-list { display: flex; flex-direction: column; gap: 7px; }
+/* mobile-only button that opens the filter panel (hidden on desktop) */
+.fab-filter {
+  display: none; position: absolute; top: 14px; left: 14px; z-index: 7;
+  align-items: center; gap: 6px; padding: 8px 14px; font: inherit; font-size: 14px; font-weight: 600;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--line);
+  border-radius: 999px; box-shadow: var(--shadow); cursor: pointer;
+}
+.fab-filter.on { background: var(--brand); color: #fff; border-color: var(--brand); }
 .fab {
   position: absolute; right: 18px; bottom: 22px; z-index: 6;
   box-shadow: 0 6px 18px rgba(30,111,92,.4);
@@ -321,7 +329,12 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--brand); out
     overflow-x: auto; -webkit-overflow-scrolling: touch; white-space: nowrap;
   }
   .admin-bar .nav-toggle { display: none; }
-  .map-filters { right: 14px; max-width: none; }
+  /* collapse the filter panel by default on phones; open it with the button */
+  .fab-filter { display: inline-flex; }
+  .map-filters {
+    display: none; top: 62px; left: 14px; right: 14px; max-width: none; max-height: 62%;
+  }
+  .map-filters.open { display: block; }
   .footer .cols { gap: 24px; }
 }
 @media (max-width: 460px) {

@@ -70,6 +70,7 @@ const I18N = (() => {
     "Layers": "图层",
     "🚉 Transit stations": "🚉 公共交通站点",
     "Clear filters": "清除筛选",
+    "⚲ Filters": "⚲ 筛选",
     "＋ Report": "＋ 举报",
 
     // report panel / form
