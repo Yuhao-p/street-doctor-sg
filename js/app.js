@@ -445,6 +445,7 @@ route(/^\/map(?:\?.*)?$/, function mapPage() {
       <button class="fab-filter" id="filters-toggle" aria-label="Filters">⚲ Filters</button>
       <button class="btn btn-accent fab" id="open-report">＋ Report</button>
       <aside class="report-drawer" id="report-drawer">
+        <div class="drawer-grip" id="drawer-grip" aria-hidden="true"></div>
         <header><h3>Report an issue</h3><button class="drawer-close" id="drawer-close" aria-label="Close">✕</button></header>
         <div class="drawer-body" id="drawer-body"></div>
       </aside>
@@ -643,6 +644,33 @@ route(/^\/map(?:\?.*)?$/, function mapPage() {
     // mobile: filters are collapsed by default; this button toggles them
     const ftBtn = wrapEl.querySelector("#filters-toggle");
     ftBtn.onclick = () => ftBtn.classList.toggle("on", filters.classList.toggle("open"));
+
+    // mobile: drag the report sheet up/down so the user chooses how much map to see
+    (function enableSheetDrag() {
+      const grip = wrapEl.querySelector("#drawer-grip");
+      const header = drawer.querySelector("header");
+      const isMobile = () => window.matchMedia("(max-width: 760px)").matches;
+      let startY = 0, startH = 0, dragging = false;
+      const onMove = (e) => {
+        if (!dragging) return;
+        const y = e.touches ? e.touches[0].clientY : e.clientY;
+        const h = Math.max(90, Math.min(window.innerHeight * 0.92, startH + (startY - y)));
+        drawer.style.height = h + "px";
+        e.preventDefault();
+      };
+      const onUp = () => { dragging = false; drawer.style.transition = ""; window.removeEventListener("pointermove", onMove); };
+      const onDown = (e) => {
+        if (!isMobile() || !drawer.classList.contains("open")) return;
+        if (e.target.closest && e.target.closest(".drawer-close")) return;   // don't hijack the close button
+        dragging = true;
+        startY = e.clientY;
+        startH = drawer.getBoundingClientRect().height;
+        drawer.style.transition = "none";
+        window.addEventListener("pointermove", onMove, { passive: false });
+        window.addEventListener("pointerup", onUp, { once: true });
+      };
+      [grip, header].forEach((elm) => elm.addEventListener("pointerdown", onDown));
+    })();
 
     // filters
     filters.querySelectorAll("[data-cat]").forEach((chip) =>

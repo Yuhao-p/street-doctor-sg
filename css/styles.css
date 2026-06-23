@@ -172,6 +172,7 @@ h1, h2, h3 { line-height: 1.2; margin: 0 0 .4em; }
 .report-drawer > header h3 { margin: 0; font-size: 17px; }
 .report-drawer .drawer-body { padding: 16px; overflow-y: auto; flex: 1; }
 .drawer-close { background: none; border: 0; font-size: 22px; line-height: 1; cursor: pointer; color: var(--ink-soft); }
+.drawer-grip { display: none; }   /* drag handle — mobile only (see media query) */
 .loc-hint { background: #e9f3ef; border: 1px solid #cfe6dc; border-radius: 10px; padding: 10px 12px; font-size: 13px; color: var(--brand-dk); }
 .loc-status { font-size: 13px; margin: 8px 0; }
 .seg-toggle.on { border-color: var(--accent); background: #fdeee8; color: var(--accent); }
@@ -179,11 +180,18 @@ h1, h2, h3 { line-height: 1.2; margin: 0 0 .4em; }
 
 @media (max-width: 760px) {
   .report-drawer {
-    width: 100%; max-width: 100%; top: auto; bottom: 0; height: 80%;
+    width: 100%; max-width: 100%; top: auto; bottom: 0; height: 55%;
     transform: translateY(100%); border-left: 0; border-top: 1px solid var(--line);
     border-radius: 16px 16px 0 0;
   }
   .report-drawer.open { transform: translateY(0); }
+  /* draggable grab handle: drag up/down to resize the sheet vs. the map */
+  .drawer-grip { display: block; position: relative; height: 20px; flex: 0 0 auto; cursor: grab; touch-action: none; }
+  .drawer-grip::before {
+    content: ""; position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+    width: 40px; height: 4px; border-radius: 2px; background: var(--line);
+  }
+  .report-drawer > header { touch-action: none; }
 }
 .mini-card h4 { margin: 0 0 6px; font-size: 14px; }
 .mini-card .meta { display: flex; gap: 6px; align-items: center; margin: 6px 0; flex-wrap: wrap; }
