@@ -55,7 +55,8 @@ Geolocation, clipboard and auth work over `http(s)://`, not `file://`.
    policies, and triggers (`support_count` sync and the initial published-history row both run
    `security definer` so non-moderators can report and vote).
 3. **Authentication → Providers → Email**: enable it. For dev, turn **Confirm email** off so signup
-   logs you straight in (turn it back on before any real launch).
+   logs you straight in (turn it back on before any real launch). The built-in email service is
+   rate-limited — for real delivery, wire up your own SMTP: see [docs/smtp-resend.md](docs/smtp-resend.md).
 4. **Authentication → URL Configuration**: add your site URL to **Site URL** and **Redirect URLs**
    (e.g. `https://yuhao-p.github.io/street-doctor-sg/`) so the password-reset email links return correctly.
 5. Make yourself a moderator after signing up:
