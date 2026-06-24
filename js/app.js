@@ -626,10 +626,11 @@ route(/^\/map(?:\?.*)?$/, function mapPage() {
     }
 
     function openDrawer() {
+      if (!Auth.isLoggedIn()) { toast("Please log in to report an issue."); navigate("/login"); return; }
       filters.classList.remove("open");   // don't stack the filter panel over the drawer
       drawer.classList.add("open");
       const rep = { lng: null, lat: null, address_text: "", category: DB.activeCategories()[0]?.slug || "",
-        title: "", description: "", affected_users: [], photos: [], email: "", consent: false, turnstile: false,
+        title: "", description: "", affected_users: [], photos: [], consent: false, turnstile: false,
         geometry: [], asset_type: "street", transit_ref: null };
       panel = mountReportPanel(wrapEl.querySelector("#drawer-body"), rep, {
         requestMode: setMode, clearGeo: () => { clearReportGeo(); }, placePin, renderSegments, map,
@@ -779,8 +780,6 @@ function mountReportPanel(container, rep, hooks) {
       <div class="field">Photos <span class="muted" style="font-weight:400">(max 3)</span>
         <div class="photo-grid" id="r-photos"></div>
       </div>
-      <label class="field">Email <span class="muted" style="font-weight:400">(optional)</span>
-        <input type="email" id="r-email" placeholder="you@example.com"></label>
       <label class="checkbox"><input type="checkbox" id="r-consent"> <span>I agree to the <a href="#/privacy" target="_blank">privacy policy</a> &amp; <a href="#/terms" target="_blank">terms</a>.</span></label>
       <label class="checkbox"><input type="checkbox" id="r-turnstile"> <span>I'm human (simulated Turnstile).</span></label>
       <button class="btn btn-accent btn-block" id="r-submit" style="margin-top:8px">Submit report</button>
@@ -795,7 +794,6 @@ function mountReportPanel(container, rep, hooks) {
   $$("#r-cat").onchange = (e) => { rep.category = e.target.value; };
   $$("#r-title").oninput = (e) => { rep.title = e.target.value; };
   $$("#r-desc").oninput = (e) => { rep.description = e.target.value; };
-  $$("#r-email").oninput = (e) => { rep.email = e.target.value; };
   $$("#r-consent").onchange = (e) => { rep.consent = e.target.checked; };
   $$("#r-turnstile").onchange = (e) => { rep.turnstile = e.target.checked; };
   body.querySelectorAll("#r-affected .chip").forEach((chip) => chip.onclick = () => {
@@ -929,7 +927,7 @@ function mountReportPanel(container, rep, hooks) {
     const issue = DB.addIssue({
       category: rep.category, title: rep.title.trim(), description: rep.description.trim(),
       affected_users: rep.affected_users, lng: rep.lng, lat: rep.lat, address_text: rep.address_text,
-      photos: rep.photos, email: rep.email || null, geometry: rep.geometry.length ? rep.geometry : null,
+      photos: rep.photos, geometry: rep.geometry.length ? rep.geometry : null,
       asset_type: rep.asset_type, transit_ref: rep.transit_ref,
     });
     hooks.onSubmitted(issue);
@@ -1001,6 +999,18 @@ function mountReportPanel(container, rep, hooks) {
 const DRAFT_KEY = "streetdoctor_draft_v1";
 
 route(/^\/report$/, function reportPage() {
+  if (!Auth.isLoggedIn()) {
+    const v = document.createElement("div");
+    v.appendChild(publicNav());
+    const c = el(`<div class="wrap section" style="max-width:440px"><div class="card center">
+      <div style="font-size:38px">🔒</div>
+      <h1>Log in to report</h1>
+      <p class="muted">You need an account to submit a report. It's quick and free.</p>
+      <a class="btn btn-primary btn-block" href="#/login">Log in / Sign up</a>
+    </div></div>`);
+    v.appendChild(c);
+    return v;
+  }
   const draft = loadDraft() || {
     lng: null, lat: null, address_text: "", category: "", title: "", description: "",
     affected_users: [], photos: [], email: "", consent: false, turnstile: false,
@@ -1032,7 +1042,7 @@ route(/^\/report$/, function reportPage() {
         const issue = DB.addIssue({
           category: draft.category, title: draft.title.trim(), description: draft.description.trim(),
           affected_users: draft.affected_users, lng: draft.lng, lat: draft.lat,
-          address_text: draft.address_text, photos: draft.photos, email: draft.email || null,
+          address_text: draft.address_text, photos: draft.photos,
         });
         clearDraft();
         navigate(`/report/success`);
@@ -1054,7 +1064,7 @@ route(/^\/report\/success$/, function reportSuccess() {
         <div style="font-size:48px">✅</div>
         <h1>Report published</h1>
         <p class="muted">Thank you. Your report is now <strong>live on the public map</strong> — anyone can see it and add their support straight away.</p>
-        <p class="muted">If a case is inaccurate or doesn't belong, the community can flag it and STC moderators will review. If you left an email, STC may contact you about updates.</p>
+        <p class="muted">If a case is inaccurate or doesn't belong, the community can flag it and STC moderators will review. Updates appear on the public timeline.</p>
         <div class="row center" style="justify-content:center;margin-top:14px">
           <a class="btn btn-primary" href="#/map">Back to map</a>
           <a class="btn btn-ghost" href="#/report">Report another</a>
@@ -1066,7 +1076,7 @@ route(/^\/report\/success$/, function reportSuccess() {
 /* ----- step rendering ----- */
 const STEP_TITLES = {
   1: "Pick the location", 2: "Confirm the address", 3: "Problem type", 4: "Title & description",
-  5: "Who is affected", 6: "Photos", 7: "Contact (optional)", 8: "Consent & verify",
+  5: "Who is affected", 6: "Photos", 7: "Your account", 8: "Consent & verify",
 };
 
 function renderStep(step, d, onChange, nav) {
@@ -1173,10 +1183,7 @@ function renderStep(step, d, onChange, nav) {
   }
 
   if (step === 7) {
-    body.appendChild(el(`<label class="field">Email <span class="muted">(optional)</span>
-      <input type="email" id="email" placeholder="you@example.com" value="${esc(d.email)}">
-      <div class="help">Only used so STC can update you on status changes. Stored separately from the public case (see <a href="#/privacy">privacy policy</a>).</div></label>`));
-    body.querySelector("#email").addEventListener("input", (e) => { d.email = e.target.value; });
+    body.appendChild(el(`<div class="loc-hint">You're reporting as <strong>${esc(Auth.displayName())}</strong>. STC can reach you through your account if there's an update — no separate email needed.</div>`));
   }
 
   if (step === 8) {
@@ -1936,7 +1943,7 @@ route(/^\/admin\/issues\/([\w-]+)$/, function adminIssueEdit(id) {
         <li><div class="t-time">${fmtDateTime(h.created_at)} ${h.is_public ? "" : "· <em>internal</em>"}</div>
         <div>${statusBadge(h.new_status)}</div>${h.note ? `<div class="t-note">${esc(h.note)}</div>` : ""}</li>`).join("")}</ul>`
       : "<p class='muted'>No history yet.</p>"}
-    ${issue.email ? `<p class="muted" style="margin-top:10px">📧 Reporter contact: <strong>${esc(issue.email)}</strong> <span class="tag">private</span></p>` : `<p class="muted" style="margin-top:10px">No reporter email provided.</p>`}
+    <p class="muted" style="margin-top:10px">${issue.user_id ? "Reported by a registered account." : "Legacy / seed case (no account)."}</p>
   </div>`));
 
   // wire up

@@ -47,7 +47,6 @@ create table public.issues (
   transit_ref text,
   geometry jsonb,                          -- MultiLineString coords, or null
   photos jsonb not null default '[]',      -- data URLs (move to Storage later)
-  email text,                              -- optional reporter contact
   status text not null default 'published',
   support_count integer not null default 0,
   created_at timestamptz not null default now(),

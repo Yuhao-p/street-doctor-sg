@@ -165,7 +165,7 @@ const DB = (() => {
         affected_users: issue.affected_users || [],
         lng: issue.lng, lat: issue.lat, address_text: issue.address_text || null,
         asset_type: issue.asset_type || "street", transit_ref: issue.transit_ref || null,
-        geometry: issue.geometry || null, photos: issue.photos || [], email: issue.email || null,
+        geometry: issue.geometry || null, photos: issue.photos || [],
         status: "published", support_count: 0, created_at: now, updated_at: now,
         status_history: [{ new_status: "published", note: "Auto-published on submission.", is_public: true, created_at: now }],
       };

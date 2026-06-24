@@ -191,6 +191,11 @@ const I18N = (() => {
     "Updating…": "更新中…",
     "Password must be at least 6 characters.": "密码至少需 6 个字符。",
     "The two passwords don't match.": "两次输入的密码不一致。",
+    "Log in to report": "登录后才能举报",
+    "You need an account to submit a report. It's quick and free.": "提交举报需要账户，注册快速又免费。",
+    "Log in / Sign up": "登录 / 注册",
+    "Your account": "你的账户",
+    ". STC can reach you through your account if there's an update — no separate email needed.": "。如有进度更新，STC 可通过你的账户与你联系，无需另外提供电邮。",
 
     // emergency page
     "Emergency & urgent issues": "紧急与急迫情况",
@@ -262,6 +267,7 @@ const I18N = (() => {
     [/ · Updated /g, " · 更新于 "],
     [/^Log out \((.*)\)$/, "登出（$1）"],
     [/^Posting as $/, "发表身份："],
+    [/^You're reporting as $/, "你的举报身份："],
     [/^Step (\d+) of /, "第 $1 步 / 共 "],
   ];
 
