@@ -1,70 +1,98 @@
-# Street Doctor SG — runnable prototype
+# Street Doctor SG
 
-A self-contained, **front-end-only** prototype of the Street Doctor SG civic street-audit
-platform described in the product planning document. No backend, no build step, no API keys.
+A civic **street-audit platform** for Singapore: residents map long-term, design-level street
+problems — missing footpaths, unsafe crossings, accessibility barriers — and the evidence is
+structured for the Singapore Transport Collective (STC) to advocate with LTA and other agencies.
 
-## Run it
+Static front-end (HTML/CSS/vanilla JS) on a **shared Supabase backend**, so reports, comments,
+votes and flags are visible to everyone. Bilingual (English / 简体中文) and mobile-first.
 
-Just open `index.html` in a browser. (Map tiles need an internet connection.)
+**Live:** https://yuhao-p.github.io/street-doctor-sg/ (GitHub Pages)
 
-For best results — geolocation and clipboard work more reliably over `http://` than `file://` —
-serve the folder:
+## How it works
+
+- **Accounts** — everyone registers (Supabase email/password). Reading is public; reporting,
+  commenting, supporting and flagging require logging in. A **forgot-password** flow is included.
+- **Report → published immediately** — there's no moderation gate. A new report goes straight onto
+  the public map.
+- **Community flagging** — anyone can flag a case that's wrong or doesn't belong (not real, wrong
+  location, duplicate, offensive/spam). Moderators only handle the resulting flags: keep the case
+  (dismiss) or remove it.
+- **Discussion** — each case has a public comment thread.
+- **Support / co-sign** — one support per account, deduped in the database; the report flow also
+  suggests existing cases on the same road/spot so people join those instead of duplicating.
+- **Moderation** — users with `profiles.role = 'moderator'` get the `/admin` console: case list,
+  flag queue, status lifecycle, edit/remove, duplicate detection, CSV/GeoJSON export.
+
+## Map features
+
+- MapLibre map (CARTO Voyager basemap, no key) with category + status filters and colored markers.
+- **One-tap "Locate me"** flies to the user's GPS position (and drops the report pin while reporting).
+- **Road-segment selection** — hover/click a pre-built junction-to-junction road network
+  (`data/sg-roads.geojson`, ~64k segments) to attach the affected stretch; live Overpass lookup is
+  the fallback outside the pre-built area.
+- **Transit-stop layer** — a toggleable curated MRT/LRT layer ([`js/transit.js`](js/transit.js));
+  click a station to report about it.
+- **Mobile UX** — the filter panel collapses behind a "Filters" button; the report sheet is a
+  draggable bottom sheet (snaps to 25% / 55% / 90%) so users choose how much map to see.
+
+## Run / develop locally
+
+Serve the folder (the app talks to the live Supabase backend, so you'll see shared data):
 
 ```bash
-cd "Street Doctor"
-python3 -m http.server 8000
-# then open http://localhost:8000
+python3 -m http.server 8000   # then open http://localhost:8000
 ```
 
-## What's included
+Geolocation, clipboard and auth work over `http(s)://`, not `file://`.
 
-| Spec section | Implemented as |
-| --- | --- |
-| §4.1 Home | Hero, dual CTA, non-government disclaimer, mini map, trust stats, STC/VZT blurb |
-| §4.2 Map | Full MapLibre map, multi-select category + status filters, colored markers, mini-cards, floating report button |
-| §4.3 Report | 8-step form with progress bar, map pin / geolocation, photo upload (≤3, client-side compression), optional email, consent + simulated Turnstile, localStorage draft autosave |
-| §4.4 Issue detail | Status badge, category tag, photo carousel, affected groups, mini map, support button (deduped), public STC timeline, share/copy link |
-| §4.5 Admin | Login (`stc-demo`), dashboard, case list with filter/sort + approve/reject, moderation page (edit content/coords/photos, status updates, mark duplicate), duplicate suggestions, CSV + GeoJSON export |
-| §2 Roles | Public vs. admin separation; `/admin/*` guarded by a login flag |
-| §11 Pages | About, FAQ, Privacy, Terms, Emergency |
+## Set up your own Supabase backend
 
-### v2 feature additions
-
-- **Road-segment highlighting** — on the map's report panel, "Highlight road segment" lets you
-  click a road; the app queries the live [Overpass API](https://overpass-api.de/) (OpenStreetMap),
-  detects the junction nodes around the click, and highlights just the junction-to-junction stretch.
-  Stored as a line geometry on the case and drawn on the map + detail page. Falls back to a pin if
-  Overpass is unreachable or the click isn't on a road.
-- **Transit-stop layer** — a toggleable MRT/LRT station layer ([`js/transit.js`](js/transit.js),
-  a curated subset). Click a station to file a report about that stop, pre-filled with its name and
-  the "Transit stop access / condition" category. Replace with LTA DataMall data in production.
-- **Inline reporting** — reporting happens in a slide-in drawer on the map itself; the map stays
-  live for picking the pin / segment / station. The standalone `/report` wizard remains as a fallback.
-- **Admin content editor** — `/admin/settings` edits the site name, hero text/image, stat labels and
-  footer blurb; `/admin/categories` edits/adds/hides problem categories. Public pages read these live.
-
-## How it differs from the production spec (deliberately)
-
-- **Storage**: browser `localStorage` stands in for Supabase Postgres/PostGIS. See `DB` in
-  [`js/data.js`](js/data.js) — each method maps to a table/Server Action in §7–8.
-- **Basemap**: free OpenStreetMap raster tiles instead of OneMap (which needs a token).
-  Swap the `OSM_STYLE` source in [`js/app.js`](js/app.js) for OneMap in production.
-- **Address search**: free-text + browser geolocation. Production proxies OneMap Search /
-  reverse-geocode via `/api/onemap/*` (§8).
-- **Turnstile**: a checkbox placeholder. Production embeds the real Cloudflare widget.
-- **Auth**: a demo password flag, not Supabase Auth + RLS.
+1. Create a Supabase project. Put its **Project URL** + **publishable (anon) key** in
+   [`js/supabase.js`](js/supabase.js). (The anon key is safe in the browser — access is governed by
+   Row Level Security, not by hiding the key. Never embed the `service_role` key.)
+2. In the SQL Editor, run [`supabase/schema.sql`](supabase/schema.sql) — it creates the tables, RLS
+   policies, and triggers (`support_count` sync and the initial published-history row both run
+   `security definer` so non-moderators can report and vote).
+3. **Authentication → Providers → Email**: enable it. For dev, turn **Confirm email** off so signup
+   logs you straight in (turn it back on before any real launch).
+4. **Authentication → URL Configuration**: add your site URL to **Site URL** and **Redirect URLs**
+   (e.g. `https://yuhao-p.github.io/street-doctor-sg/`) so the password-reset email links return correctly.
+5. Make yourself a moderator after signing up:
+   ```sql
+   update public.profiles set role = 'moderator'
+   where id = (select id from auth.users where email = 'you@example.com');
+   ```
 
 ## Files
 
 ```
-index.html      app shell + CDN scripts
-css/styles.css  mobile-first styles (375px tested)
-js/data.js      constants, seed cases, localStorage "DB"
-js/app.js       hash router + all views (public + admin)
+index.html               app shell + CDN scripts (MapLibre, supabase-js)
+css/styles.css           mobile-first styles
+js/i18n.js               EN / 简体中文 dictionary + render-time DOM translation
+js/supabase.js           Supabase client + auth session (Session / Auth)
+js/data.js               constants + DB: Supabase-backed in-memory cache
+                         (categories & site settings stay in localStorage)
+js/transit.js            curated MRT/LRT station list
+js/app.js                hash router + all views (public + admin)
+data/sg-roads.geojson    full-island junction-to-junction road network
+data/pilot-roads.geojson Toa Payoh pilot network
+scripts/build-roads*.mjs road-network generators (Overpass)
+supabase/schema.sql      Postgres schema, RLS policies, triggers
 ```
 
-## Demo tips
+`DB` in [`js/data.js`](js/data.js) is the single data-access layer: reads are synchronous from an
+in-memory cache hydrated from Supabase on startup; writes are optimistic and persisted in the
+background (note: a Supabase query only runs when it's awaited/`.then()`'d).
 
-- Admin login: open **Admin** in the nav → password `stc-demo`.
-- Submit a report → it appears as *pending* in the admin case list → **Approve** → it shows on the public map.
-- Footer has a **reset demo data** link to restore the seed cases.
+## Known prototype shortcuts
+
+- **Photos** are stored as data URLs on the issue row — fine for a prototype; move to Supabase
+  Storage for production.
+- **Categories & site settings** are still client-side (localStorage), so admin edits and any
+  added categories aren't shared between users yet.
+- **Bilingual scope**: the public site is translated; the `/admin` console and user-written content
+  (titles, descriptions, comments) stay as authored. The four prose pages
+  (About/FAQ/Privacy/Terms) are not translated yet.
+- **Basemap** is CARTO instead of OneMap; **Turnstile** is a checkbox placeholder; default
+  Supabase email is rate-limited (swap in your own SMTP for volume).
